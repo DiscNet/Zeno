@@ -34,6 +34,15 @@ object HtmlExporter {
         out.append(".text{display:flex;align-items:center;white-space:pre-wrap;overflow-wrap:anywhere}")
         out.append(".button{display:flex;align-items:center;justify-content:center;border:0;cursor:pointer}")
         out.append(".image{display:block;object-fit:cover}")
+        out.append(".glass{background:rgba(228,239,255,.16);")
+        out.append("backdrop-filter:blur(7px) saturate(1.18);")
+        out.append("-webkit-backdrop-filter:blur(7px) saturate(1.18);")
+        out.append("border:1.5px solid rgba(255,255,255,.8);")
+        out.append("box-shadow:inset 0 1px 1px rgba(255,255,255,.8),")
+        out.append("inset 0 -1px 4px rgba(35,50,80,.12),0 8px 25px rgba(0,0,0,.07)}")
+        out.append(".glass::after{content:'';position:absolute;inset:0;pointer-events:none;")
+        out.append("background:linear-gradient(118deg,rgba(255,255,255,.24),transparent 48%,")
+        out.append("rgba(195,219,246,.1));mix-blend-mode:screen}")
         val registered = mutableMapOf<String, String>()
         var fontCounter = 0
         project.fonts.forEach { (key, font) ->
@@ -76,34 +85,61 @@ object HtmlExporter {
                 }
             }
         }
+        // Explicit artboard breakpoints prevent elements from drifting away
+        // when a design is viewed on phone, tablet and desktop.
+        fun addBreakpoint(width: Int, height: Int, media: String) {
+            val geometry = ResponsiveLayout.forViewport(project, width)
+            if (media.isNotEmpty()) out.append("@media ").append(media).append("{")
+            out.append(".stage{width:min(100%,").append(width)
+                .append("px);min-height:max(100vh,").append(height)
+                .append("px);aspect-ratio:auto}")
+            project.elements.forEachIndexed { index, element ->
+                val g = geometry[element.id] ?: return@forEachIndexed
+                out.append(".z").append(index).append("{left:")
+                    .append(pct(g.x,width)).append(";top:").append(num(g.y))
+                    .append("px;width:").append(pct(g.w,width))
+                    .append(";height:").append(num(g.h)).append("px}")
+            }
+            if (media.isNotEmpty()) out.append("}")
+        }
+        addBreakpoint(390,844,"")
+        addBreakpoint(768,1024,"(min-width:600px)")
+        addBreakpoint(1200,800,"(min-width:1024px)")
         out.append("</style></head><body><main class=\"stage\">\n")
-        for (e in project.elements) {
+        for ((index, e) in project.elements.withIndex()) {
             if (!e.visible) continue
             val style = StringBuilder()
-            style.append("left:").append(pct(e.x, project.pageWidth))
-                .append(";top:").append(pct(e.y, project.pageHeight))
-                .append(";width:").append(pct(e.width, project.pageWidth))
-                .append(";height:").append(pct(e.height, project.pageHeight))
-                .append(";border-radius:").append(num(e.radius.coerceAtLeast(0f))).append("px")
+            style.append("border-radius:").append(num(e.radius.coerceAtLeast(0f))).append("px")
                 .append(";opacity:").append(num(e.opacity.coerceIn(0f, 1f)))
-                .append(";background:").append(cssColor(e.fill))
+                .append(";background:").append(if (e.kind == ElementKind.GLASS) "transparent" else cssColor(e.fill))
                 .append(";color:").append(cssColor(e.textColor))
                 .append(";font-size:").append(num(e.fontSize)).append("px")
             registered[e.fontId]?.let { style.append(";font-family:'").append(it).append("'") }
             when (e.kind) {
                 ElementKind.TEXT -> {
                     style.append(";background:transparent")
-                    out.append("<div class=\"item text\" style=\"").append(style).append("\">")
+                    out.append("<div class=\"item text z").append(index).append("\" style=\"").append(style).append("\">")
                     out.append(escape(e.text)).append("</div>\n")
                 }
-                ElementKind.BOX -> out.append("<div class=\"item box\" style=\"")
+                ElementKind.BOX -> out.append("<div class=\"item box z").append(index).append("\" style=\"")
                     .append(style).append("\"></div>\n")
-                ElementKind.BUTTON -> out.append("<button class=\"item button\" type=\"button\" style=\"")
+                ElementKind.BUTTON -> out.append("<button class=\"item button z").append(index).append("\" type=\"button\" style=\"")
                     .append(style).append("\">").append(escape(e.text)).append("</button>\n")
                 ElementKind.IMAGE -> {
-                    out.append("<img alt=\"\" class=\"item image\" src=\"")
+                    out.append("<img alt=\"\" class=\"item image z").append(index).append("\" src=\"")
                         .append(dataUri(e.imageData)).append("\" style=\"").append(style)
                         .append("\">\n")
+                }
+                ElementKind.GLASS -> {
+                    out.append("<div class=\"item glass z").append(index).append("\" style=\"")
+                        .append(style).append(";background:rgba(230,240,255,")
+                        .append(num(0.10f + e.glassStrength * 0.12f)).append(")")
+                        .append(";backdrop-filter:blur(")
+                        .append(num(3f + 8f * e.glassStrength))
+                        .append("px) saturate(1.25);")
+                        .append("-webkit-backdrop-filter:blur(")
+                        .append(num(3f + 8f * e.glassStrength))
+                        .append("px) saturate(1.25)\"></div>\n")
                 }
             }
         }
