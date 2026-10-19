@@ -39,6 +39,42 @@ class EditorCanvas(
     private var gesture = Gesture.PAN
     private var changed = false
     private var scaling = false
+    private val glassCache = mutableMapOf<String,Bitmap>()
+    var activeScreen = 0
+        private set
+
+    fun invalidateGlassCache() {
+        glassCache.values.forEach { if(!it.isRecycled)it.recycle() }
+        glassCache.clear()
+        invalidate()
+    }
+
+    private fun sceneChanged() {
+        invalidateGlassCache()
+        onChanged()
+    }
+
+    fun appendScreen() {
+        if(project.screens >= 12)return
+        project.appendScreen()
+        activeScreen=project.screens-1
+        select(null)
+        invalidateGlassCache()
+        scrollToSection(activeScreen)
+        sceneChanged()
+    }
+
+    fun scrollToSection(index:Int) {
+        activeScreen=index.coerceIn(0,project.screens-1)
+        val top=project.sectionHeight()*activeScreen
+        originY=resources.displayMetrics.density*18f-top*zoom
+        invalidate()
+    }
+
+    override fun onDetachedFromWindow() {
+        invalidateGlassCache()
+        super.onDetachedFromWindow()
+    }
     var snapToGuides = true
     var selectedId: String? = null
         private set
@@ -88,7 +124,7 @@ class EditorCanvas(
     fun add(kind: ElementKind, image: String = "", imageRatio: Float = 1f) {
         val offset = (project.elements.size % 6) * 15f
         val x = 22f + offset
-        val y = 80f + offset
+        val y = project.sectionHeight()*activeScreen + 80f + offset
         val element = when (kind) {
             ElementKind.TEXT -> DesignElement(kind = kind, x = x, y = y,
                 width = 255f, height = 60f, text = "Novo texto", fontSize = 22f)
@@ -110,14 +146,14 @@ class EditorCanvas(
         }
         project.elements.add(element)
         select(element.id)
-        onChanged()
+        sceneChanged()
     }
 
     fun deleteSelected() {
         val id = selectedId ?: return
         if (project.elements.removeAll { it.id == id }) {
             select(null)
-            onChanged()
+            sceneChanged()
         }
     }
 
@@ -128,8 +164,7 @@ class EditorCanvas(
         if (old == next) return
         val value = project.elements.removeAt(old)
         project.elements.add(next, value)
-        invalidate()
-        onChanged()
+        sceneChanged()
     }
 
     fun bringSelectedToFront() {
@@ -206,32 +241,23 @@ class EditorCanvas(
         canvas.clipRect(page)
         drawPageBackground(canvas, page)
 
-        val hasGlass = project.elements.any { it.visible && it.kind == ElementKind.GLASS }
-        val factor = min(1.5f, 2200f / max(project.pageWidth, project.pageHeight))
-        val buffer = if (hasGlass) Bitmap.createBitmap(
-            max(1,(project.pageWidth*factor).toInt()),
-            max(1,(project.pageHeight*factor).toInt()), Bitmap.Config.ARGB_8888) else null
-        val bufferCanvas = buffer?.let { Canvas(it).apply { scale(factor,factor) } }
-        if (bufferCanvas != null) drawPageBackground(bufferCanvas,page)
-        for (element in project.elements) {
+        for ((index,element) in project.elements.withIndex()) {
             if (!element.visible) continue
-            if (element.kind == ElementKind.GLASS) {
-                val bounds = RectF(element.x,element.y,element.x+element.width,
+            if(element.kind == ElementKind.GLASS) {
+                val bounds=RectF(element.x,element.y,element.x+element.width,
                     element.y+element.height)
-                if (buffer != null) GlassRenderer.draw(canvas,buffer,
-                    project.pageWidth,project.pageHeight,bounds,element.radius,
-                    element.glassStrength,element.opacity)
-                if (bufferCanvas != null) {
-                    val tint = Paint(Paint.ANTI_ALIAS_FLAG)
-                    tint.color = Color.argb(90,228,236,249)
-                    bufferCanvas.drawRoundRect(bounds,element.radius,element.radius,tint)
+                val glass=glassCache[element.id] ?: buildGlassBitmap(index,element)?.also {
+                    glassCache[element.id]=it
                 }
-            } else {
-                drawStandardElement(canvas, element)
-                if (bufferCanvas != null) drawStandardElement(bufferCanvas,element)
-            }
+                if(glass!=null && !glass.isRecycled) {
+                    paint.reset()
+                    paint.isAntiAlias=true
+                    paint.isFilterBitmap=true
+                    canvas.drawBitmap(glass,null,bounds,paint)
+                }
+            } else drawStandardElement(canvas,element)
         }
-        buffer?.recycle()
+        drawSectionGuides(canvas)
         canvas.restore()
 
         selected()?.takeIf { it.visible }?.let { selected ->
@@ -258,6 +284,69 @@ class EditorCanvas(
             }
         }
         canvas.restore()
+    }
+
+    private fun drawSectionGuides(canvas:Canvas) {
+        if(project.screens<=1)return
+        val h=project.sectionHeight()
+        val line=Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style=Paint.Style.STROKE;strokeWidth=1.3f/zoom
+            color=Color.argb(190,117,145,255)
+        }
+        for(i in 1 until project.screens) {
+            val y=i*h
+            canvas.drawLine(0f,y,project.pageWidth.toFloat(),y,line)
+        }
+    }
+
+    private fun buildGlassBitmap(index:Int,e:DesignElement):Bitmap? {
+        val rect=RectF(e.x,e.y,e.x+e.width,e.y+e.height)
+        if(rect.width()<2f || rect.height()<2f)return null
+        val margin=36f
+        val x0=(rect.left-margin).coerceAtLeast(0f)
+        val y0=(rect.top-margin).coerceAtLeast(0f)
+        val x1=(rect.right+margin).coerceAtMost(project.pageWidth.toFloat())
+        val y1=(rect.bottom+margin).coerceAtMost(project.pageHeight.toFloat())
+        val cropW=x1-x0;val cropH=y1-y0
+        if(cropW<2f||cropH<2f)return null
+        val density=min(1.35f,1200f/max(cropW,cropH)).coerceIn(.55f,1.35f)
+        val bw=max(1,(cropW*density).toInt())
+        val bh=max(1,(cropH*density).toInt())
+        val ow=max(1,(rect.width()*density).toInt())
+        val oh=max(1,(rect.height()*density).toInt())
+        if(bw.toLong()*bh>2_400_000L || ow.toLong()*oh>1_800_000L)return null
+        return runCatching {
+            val snapshot=Bitmap.createBitmap(bw,bh,Bitmap.Config.ARGB_8888)
+            try {
+                val backCanvas=Canvas(snapshot)
+                backCanvas.scale(density,density)
+                backCanvas.translate(-x0,-y0)
+                drawPageBackground(backCanvas,RectF(0f,0f,
+                    project.pageWidth.toFloat(),project.pageHeight.toFloat()))
+                val cropped=RectF(x0,y0,x1,y1)
+                val drawPaint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+                for(i in 0 until index) {
+                    val layer=project.elements[i]
+                    if(!layer.visible)continue
+                    val box=RectF(layer.x,layer.y,layer.x+layer.width,
+                        layer.y+layer.height)
+                    if(!RectF.intersects(box,cropped))continue
+                    if(layer.kind==ElementKind.GLASS) {
+                        val old=glassCache[layer.id]
+                        if(old!=null && !old.isRecycled)
+                            backCanvas.drawBitmap(old,null,box,drawPaint)
+                    } else drawStandardElement(backCanvas,layer)
+                }
+                val result=Bitmap.createBitmap(ow,oh,Bitmap.Config.ARGB_8888)
+                val paneCanvas=Canvas(result)
+                paneCanvas.scale(density,density)
+                paneCanvas.translate(-rect.left,-rect.top)
+                GlassRenderer.draw(paneCanvas,snapshot,project.pageWidth,project.pageHeight,
+                    rect,e.radius,e.glassStrength,e.opacity,e.glassFrost,e.glassDepth,
+                    e.glassDispersion,e.glassLight,x0,y0,density)
+                result
+            } finally { snapshot.recycle() }
+        }.getOrNull()
     }
 
     private fun drawStandardElement(canvas: Canvas, element: DesignElement) {
@@ -427,7 +516,7 @@ class EditorCanvas(
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (changed) onChanged()
+                if (changed) sceneChanged()
                 else performClick()
                 gesture = Gesture.PAN
                 return true
