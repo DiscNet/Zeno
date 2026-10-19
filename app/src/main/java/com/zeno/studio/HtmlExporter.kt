@@ -98,7 +98,8 @@ object HtmlExporter {
                 out.append(".z").append(index).append("{left:")
                     .append(pct(g.x,width)).append(";top:").append(num(g.y))
                     .append("px;width:").append(pct(g.w,width))
-                    .append(";height:").append(num(g.h)).append("px}")
+                    .append(";height:").append(num(g.h)).append("px;font-size:")
+                    .append(num(g.font)).append("px}")
             }
             if (media.isNotEmpty()) out.append("}")
         }
