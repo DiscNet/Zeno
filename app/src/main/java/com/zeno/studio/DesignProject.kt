@@ -6,6 +6,8 @@ import java.util.UUID
 
 enum class ElementKind { TEXT, BOX, BUTTON, IMAGE, GLASS }
 enum class BackgroundMode { SOLID, GRID, GRADIENT, IMAGE }
+enum class HorizontalAnchor { AUTO, LEFT, CENTER, RIGHT, STRETCH }
+enum class VerticalAnchor { AUTO, TOP, CENTER, BOTTOM }
 
 data class EmbeddedFont(
     val name: String,
@@ -41,6 +43,12 @@ data class DesignElement(
     var imageRatio: Float = 1f,
     var aspectLocked: Boolean = true,
     var glassStrength: Float = 0.6f,
+    var glassFrost: Float = 0.14f,
+    var glassDepth: Float = 0.75f,
+    var glassDispersion: Float = 0.15f,
+    var glassLight: Float = 0.36f,
+    var horizontalAnchor: HorizontalAnchor = HorizontalAnchor.AUTO,
+    var verticalAnchor: VerticalAnchor = VerticalAnchor.AUTO,
     var fontId: String = "",
     var visible: Boolean = true,
     var locked: Boolean = false
@@ -53,6 +61,9 @@ data class DesignElement(
         put("imageData", imageData); put("fontId", fontId)
         put("imageRatio", imageRatio.toDouble()); put("aspectLocked", aspectLocked)
         put("glassStrength", glassStrength.toDouble())
+        put("glassFrost", glassFrost.toDouble());put("glassDepth", glassDepth.toDouble())
+        put("glassDispersion", glassDispersion.toDouble());put("glassLight", glassLight.toDouble())
+        put("horizontalAnchor", horizontalAnchor.name);put("verticalAnchor", verticalAnchor.name)
         put("visible", visible); put("locked", locked)
     }
 
@@ -79,7 +90,17 @@ data class DesignElement(
                     obj.optDouble("width", 180.0) / obj.optDouble("height", 64.0).coerceAtLeast(1.0))
                     .toFloat().coerceIn(0.05f, 30f),
                 aspectLocked = obj.optBoolean("aspectLocked", true),
-                glassStrength = obj.optDouble("glassStrength", 0.6).toFloat().coerceIn(0f, 1f),
+                glassStrength = obj.optDouble("glassStrength",0.6).toFloat().coerceIn(0f,1f),
+                glassFrost = obj.optDouble("glassFrost",0.14).toFloat().coerceIn(0f,1f),
+                glassDepth = obj.optDouble("glassDepth",0.75).toFloat().coerceIn(0f,1f),
+                glassDispersion = obj.optDouble("glassDispersion",0.15).toFloat().coerceIn(0f,1f),
+                glassLight = obj.optDouble("glassLight",0.36).toFloat().coerceIn(0f,1f),
+                horizontalAnchor = runCatching {
+                    HorizontalAnchor.valueOf(obj.optString("horizontalAnchor","AUTO"))
+                }.getOrDefault(HorizontalAnchor.AUTO),
+                verticalAnchor = runCatching {
+                    VerticalAnchor.valueOf(obj.optString("verticalAnchor","AUTO"))
+                }.getOrDefault(VerticalAnchor.AUTO),
                 fontId = obj.optString("fontId"),
                 visible = obj.optBoolean("visible", true),
                 locked = obj.optBoolean("locked", false)
@@ -91,6 +112,7 @@ data class DesignElement(
 class DesignProject(
     var pageWidth: Int = 390,
     var pageHeight: Int = 844,
+    var screens: Int = 1,
     val elements: MutableList<DesignElement> = mutableListOf(),
     var backgroundMode: BackgroundMode = BackgroundMode.SOLID,
     var backgroundColor: String = "#FFFFFF",
@@ -103,6 +125,7 @@ class DesignProject(
     fun toJson(): JSONObject = JSONObject().apply {
         put("format", "zeno-project"); put("version", 3)
         put("pageWidth", pageWidth); put("pageHeight", pageHeight)
+        put("screens", screens)
         put("backgroundMode", backgroundMode.name); put("backgroundColor", backgroundColor)
         put("gradientStart", gradientStart); put("gradientEnd", gradientEnd)
         put("backgroundImage", backgroundImage)
@@ -121,7 +144,9 @@ class DesignProject(
 
     fun restore(json: JSONObject) {
         pageWidth = json.optInt("pageWidth", 390).coerceIn(240, 1920)
-        pageHeight = json.optInt("pageHeight", 844).coerceIn(320, 4096)
+        screens = json.optInt("screens",1).coerceIn(1,12)
+        pageHeight = json.optInt("pageHeight", 844).coerceIn(320, 16000)
+        if (pageHeight / screens < 250) screens = 1
         backgroundMode = runCatching {
             BackgroundMode.valueOf(json.optString("backgroundMode", "SOLID"))
         }.getOrDefault(BackgroundMode.SOLID)
@@ -160,6 +185,15 @@ class DesignProject(
         for (i in 0 until array.length()) {
             array.optJSONObject(i)?.let { elements.add(DesignElement.fromJson(it)) }
         }
+    }
+
+    fun sectionHeight(): Float = pageHeight.toFloat()/screens
+    fun appendScreen() {
+        if(screens>=12)return
+        val h=sectionHeight()
+        screens++
+        pageHeight=(h*screens).toInt()
+        breakpointLayouts.clear()
     }
 
     companion object {
