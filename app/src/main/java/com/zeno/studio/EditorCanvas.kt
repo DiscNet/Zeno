@@ -85,7 +85,7 @@ class EditorCanvas(
         invalidate()
     }
 
-    fun add(kind: ElementKind, image: String = "") {
+    fun add(kind: ElementKind, image: String = "", imageRatio: Float = 1f) {
         val offset = (project.elements.size % 6) * 15f
         val x = 22f + offset
         val y = 80f + offset
@@ -97,8 +97,16 @@ class EditorCanvas(
                 fill = "#181A20", textColor = "#FFFFFF", radius = 5f)
             ElementKind.BOX -> DesignElement(kind = kind, x = x, y = y,
                 width = 232f, height = 140f, fill = "#DFE5F0", radius = 4f)
-            ElementKind.IMAGE -> DesignElement(kind = kind, x = x, y = y,
-                width = 250f, height = 172f, imageData = image, radius = 4f)
+            ElementKind.IMAGE -> {
+                val ratio = imageRatio.coerceIn(0.05f, 30f)
+                val w = 250f
+                DesignElement(kind = kind, x = x, y = y,
+                    width = w, height = w / ratio, imageData = image,
+                    imageRatio = ratio, aspectLocked = true, radius = 4f)
+            }
+            ElementKind.GLASS -> DesignElement(kind = kind, x = x, y = y,
+                width = 235f, height = 150f, radius = 12f,
+                opacity = 1f, glassStrength = 0.6f)
         }
         project.elements.add(element)
         select(element.id)
@@ -197,8 +205,62 @@ class EditorCanvas(
         canvas.save()
         canvas.clipRect(page)
         drawPageBackground(canvas, page)
+
+        val hasGlass = project.elements.any { it.visible && it.kind == ElementKind.GLASS }
+        val factor = min(0.48f, 900f / max(project.pageWidth, project.pageHeight))
+        val buffer = if (hasGlass) Bitmap.createBitmap(
+            max(1,(project.pageWidth*factor).toInt()),
+            max(1,(project.pageHeight*factor).toInt()), Bitmap.Config.ARGB_8888) else null
+        val bufferCanvas = buffer?.let { Canvas(it).apply { scale(factor,factor) } }
+        if (bufferCanvas != null) drawPageBackground(bufferCanvas,page)
         for (element in project.elements) {
             if (!element.visible) continue
+            if (element.kind == ElementKind.GLASS) {
+                val bounds = RectF(element.x,element.y,element.x+element.width,
+                    element.y+element.height)
+                if (buffer != null) GlassRenderer.draw(canvas,buffer,
+                    project.pageWidth,project.pageHeight,bounds,element.radius,
+                    element.glassStrength,element.opacity)
+                if (bufferCanvas != null) {
+                    val tint = Paint(Paint.ANTI_ALIAS_FLAG)
+                    tint.color = Color.argb(90,228,236,249)
+                    bufferCanvas.drawRoundRect(bounds,element.radius,element.radius,tint)
+                }
+            } else {
+                drawStandardElement(canvas, element)
+                if (bufferCanvas != null) drawStandardElement(bufferCanvas,element)
+            }
+        }
+        buffer?.recycle()
+        canvas.restore()
+
+        selected()?.takeIf { it.visible }?.let { selected ->
+            val r = RectF(selected.x, selected.y, selected.x + selected.width,
+                selected.y + selected.height)
+            paint.reset()
+            paint.isAntiAlias = true
+            paint.color = accent
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 1.6f / zoom
+            canvas.drawRect(r, paint)
+            paint.style = Paint.Style.FILL
+            val size = 5.5f / zoom
+            val points = arrayOf(r.left to r.top, r.right to r.top,
+                r.left to r.bottom, r.right to r.bottom)
+            for ((x, y) in points) {
+                paint.color = Color.WHITE
+                canvas.drawRect(x-size, y-size, x+size, y+size, paint)
+                paint.color = accent
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1.7f / zoom
+                canvas.drawRect(x-size, y-size, x+size, y+size, paint)
+                paint.style = Paint.Style.FILL
+            }
+        }
+        canvas.restore()
+    }
+
+    private fun drawStandardElement(canvas: Canvas, element: DesignElement) {
             val rect = RectF(element.x, element.y,
                 element.x + element.width, element.y + element.height)
             paint.reset()
@@ -217,7 +279,7 @@ class EditorCanvas(
                     canvas.drawRect(rect, paint)
                 }
                 canvas.restore()
-            } else if (element.kind != ElementKind.TEXT) {
+            } else if (element.kind == ElementKind.BOX || element.kind == ElementKind.BUTTON) {
                 paint.color = parseColor(element.fill, Color.LTGRAY)
                 paint.alpha = (element.opacity * 255).toInt().coerceIn(0, 255)
                 canvas.drawRoundRect(rect, r, r, paint)
@@ -246,33 +308,6 @@ class EditorCanvas(
                 layout.draw(canvas)
                 canvas.restore()
             }
-        }
-        canvas.restore()
-
-        selected()?.takeIf { it.visible }?.let { selected ->
-            val r = RectF(selected.x, selected.y, selected.x + selected.width,
-                selected.y + selected.height)
-            paint.reset()
-            paint.isAntiAlias = true
-            paint.color = accent
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 1.6f / zoom
-            canvas.drawRect(r, paint)
-            paint.style = Paint.Style.FILL
-            val size = 5.5f / zoom
-            val points = arrayOf(r.left to r.top, r.right to r.top,
-                r.left to r.bottom, r.right to r.bottom)
-            for ((x, y) in points) {
-                paint.color = Color.WHITE
-                canvas.drawRect(x-size, y-size, x+size, y+size, paint)
-                paint.color = accent
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 1.7f / zoom
-                canvas.drawRect(x-size, y-size, x+size, y+size, paint)
-                paint.style = Paint.Style.FILL
-            }
-        }
-        canvas.restore()
     }
 
     private fun worldX(screenX: Float): Float = (screenX - originX) / zoom
@@ -368,6 +403,21 @@ class EditorCanvas(
                         t = t.coerceIn(0f, b - 20f)
                         r = r.coerceIn(l + 20f, project.pageWidth.toFloat())
                         b = b.coerceIn(t + 20f, project.pageHeight.toFloat())
+                        if (element.kind == ElementKind.IMAGE && element.aspectLocked) {
+                            val ratio = element.imageRatio.coerceAtLeast(0.05f)
+                            // Resizing from any corner keeps the opposite anchor stable.
+                            val targetW = max(20f, r-l)
+                            val targetH = max(20f, b-t)
+                            val w = min(targetW, targetH*ratio)
+                            val h = w/ratio
+                            when (gesture) {
+                                Gesture.RESIZE_NW -> { l = r-w; t = b-h }
+                                Gesture.RESIZE_NE -> { r = l+w; t = b-h }
+                                Gesture.RESIZE_SW -> { l = r-w; b = t+h }
+                                Gesture.RESIZE_SE -> { r = l+w; b = t+h }
+                                else -> Unit
+                            }
+                        }
                         element.x = l; element.y = t
                         element.width = r - l; element.height = b - t
                         changed = true
