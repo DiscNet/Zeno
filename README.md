@@ -4,12 +4,13 @@
 
 ZENO is an independent, mobile-first editor for designing web pages visually and exporting a real HTML/CSS project. The codebase is native Kotlin and does not depend on a hosted backend.
 
-## Current milestone — 0.2.0 (experimental)
+## Current milestone — 0.3.0 (experimental)
 
-- Visual page canvas with pinch-to-zoom, panning, selection, dragging, four resize handles and alignment snapping.
+- Visual page canvas with pinch-to-zoom, panning, selection, dragging, four resize handles, proportional image resizing and alignment snapping.
 - Add text, shapes, buttons and imported images. Adjust position, size, radius, visibility, lock, color and opacity with a HSV/HEX picker.
-- Organize layer stacking, toggle visibility and locking, and delete elements.
-- Canvas presets for phone, tablet and desktop. Page backgrounds: solid color, grid, gradient, or imported image.
+- Organize layers with live thumbnails; change stacking, visibility and locking.
+- Adaptive layout reflow between phone, tablet and desktop; breakpoint CSS in exported HTML.
+- Native refractive glass layer that samples, softly blurs and distorts what is below, with highlight borders. Web export uses CSS backdrop-filter and a translucent surface. Page backgrounds: solid color, grid, gradient, or imported image.
 - Undo and redo with local automatic draft saving.
 - Import TTF/OTF fonts. Open or save editable JSON projects with embedded images/fonts through Android's document picker.
 - Preview the generated page in an embedded WebView (JavaScript disabled).
@@ -38,7 +39,7 @@ The APK is produced at:
 
     app/build/outputs/apk/debug/app-debug.apk
 
-In GitHub, open the **Actions** tab, select **Android APK**, and download the **ZENO-v0.2.0-debug** artifact after a successful workflow. The debug APK is intended for development/testing, not Play Store distribution or permanent release signing.
+In GitHub, open the **Actions** tab, select **Android APK**, and download the **ZENO-v0.3.0-debug** artifact after a successful workflow. The debug APK is intended for development/testing, not Play Store distribution or permanent release signing.
 
 ## Roadmap
 
