@@ -1,14 +1,23 @@
 package com.zeno.studio
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 
 class EditorCanvas(
@@ -17,32 +26,42 @@ class EditorCanvas(
     private val onSelection: (DesignElement?) -> Unit,
     private val onChanged: () -> Unit
 ) : View(context) {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val background = Color.rgb(25, 27, 33)
-    private val accent = Color.rgb(103, 126, 255)
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val canvasBackground = Color.rgb(23, 24, 29)
+    private val accent = Color.rgb(118, 141, 255)
     private var zoom = 1f
     private var originX = 0f
     private var originY = 0f
-    private var lastX = 0f
-    private var lastY = 0f
-    private var dragElement = false
-    private var moved = false
-
+    private var downX = 0f
+    private var downY = 0f
+    private var originalRect = RectF()
+    private var gesture = Gesture.PAN
+    private var changed = false
+    private var scaling = false
+    var snapToGuides = true
     var selectedId: String? = null
         private set
 
-    private val scaleDetector = ScaleGestureDetector(context,
+    private enum class Gesture { PAN, DRAG, RESIZE_SE, RESIZE_SW, RESIZE_NE, RESIZE_NW }
+
+    private val detector = ScaleGestureDetector(context,
         object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                scaling = true
+                return true
+            }
             override fun onScale(detector: ScaleGestureDetector): Boolean {
-                val worldX = (detector.focusX - originX) / zoom
-                val worldY = (detector.focusY - originY) / zoom
-                val next = (zoom * detector.scaleFactor).coerceIn(0.12f, 4f)
-                originX = detector.focusX - worldX * next
-                originY = detector.focusY - worldY * next
-                zoom = next
+                val x = (detector.focusX - originX) / zoom
+                val y = (detector.focusY - originY) / zoom
+                zoom = (zoom * detector.scaleFactor).coerceIn(0.12f, 5f)
+                originX = detector.focusX - x * zoom
+                originY = detector.focusY - y * zoom
                 invalidate()
                 return true
+            }
+            override fun onScaleEnd(detector: ScaleGestureDetector) {
+                scaling = false
             }
         })
 
@@ -56,7 +75,7 @@ class EditorCanvas(
 
     fun fitToScreen() {
         if (width <= 0 || height <= 0) return
-        val padding = dp(20f)
+        val padding = dp(18f)
         zoom = min(
             (width - 2f * padding) / project.pageWidth,
             (height - 2f * padding) / project.pageHeight
@@ -66,23 +85,20 @@ class EditorCanvas(
         invalidate()
     }
 
-    fun add(kind: ElementKind) {
-        val offset = (project.elements.size % 6) * 16f
+    fun add(kind: ElementKind, image: String = "") {
+        val offset = (project.elements.size % 6) * 15f
+        val x = 22f + offset
+        val y = 80f + offset
         val element = when (kind) {
-            ElementKind.TEXT -> DesignElement(
-                kind = kind, x = 28f + offset, y = 92f + offset,
-                width = 270f, height = 55f, text = "Novo texto",
-                fill = "#FFFFFF", textColor = "#111827", fontSize = 22f
-            )
-            ElementKind.BUTTON -> DesignElement(
-                kind = kind, x = 28f + offset, y = 92f + offset,
-                width = 192f, height = 52f, text = "Botão",
-                fill = "#15171C", textColor = "#FFFFFF", fontSize = 16f
-            )
-            ElementKind.BOX -> DesignElement(
-                kind = kind, x = 28f + offset, y = 92f + offset,
-                width = 240f, height = 140f, fill = "#DDE2F0"
-            )
+            ElementKind.TEXT -> DesignElement(kind = kind, x = x, y = y,
+                width = 255f, height = 60f, text = "Novo texto", fontSize = 22f)
+            ElementKind.BUTTON -> DesignElement(kind = kind, x = x, y = y,
+                width = 178f, height = 50f, text = "Botão", fontSize = 16f,
+                fill = "#181A20", textColor = "#FFFFFF", radius = 5f)
+            ElementKind.BOX -> DesignElement(kind = kind, x = x, y = y,
+                width = 232f, height = 140f, fill = "#DFE5F0", radius = 4f)
+            ElementKind.IMAGE -> DesignElement(kind = kind, x = x, y = y,
+                width = 250f, height = 172f, imageData = image, radius = 4f)
         }
         project.elements.add(element)
         select(element.id)
@@ -97,12 +113,19 @@ class EditorCanvas(
         }
     }
 
-    fun bringSelectedToFront() {
-        val element = selected() ?: return
-        project.elements.remove(element)
-        project.elements.add(element)
+    fun moveLayer(id: String, delta: Int) {
+        val old = project.elements.indexOfFirst { it.id == id }
+        if (old < 0) return
+        val next = (old + delta).coerceIn(0, project.elements.lastIndex)
+        if (old == next) return
+        val value = project.elements.removeAt(old)
+        project.elements.add(next, value)
         invalidate()
         onChanged()
+    }
+
+    fun bringSelectedToFront() {
+        selectedId?.let { moveLayer(it, project.elements.size) }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -110,148 +133,253 @@ class EditorCanvas(
         if (oldw == 0 || oldh == 0) fitToScreen()
     }
 
-    private fun parseColor(hex: String, fallback: Int): Int =
-        runCatching { Color.parseColor(hex) }.getOrDefault(fallback)
+    private fun parseColor(s: String, fallback: Int): Int =
+        runCatching { Color.parseColor(s) }.getOrDefault(fallback)
+
+    private fun drawCover(canvas: Canvas, bitmap: Bitmap, box: RectF) {
+        val w = bitmap.width.toFloat()
+        val h = bitmap.height.toFloat()
+        val scale = max(box.width() / w, box.height() / h)
+        val cropW = box.width() / scale
+        val cropH = box.height() / scale
+        val src = Rect(
+            ((w - cropW) / 2f).toInt(),
+            ((h - cropH) / 2f).toInt(),
+            ((w + cropW) / 2f).toInt(),
+            ((h + cropH) / 2f).toInt())
+        canvas.drawBitmap(bitmap, src, box, paint)
+    }
+
+    private fun drawPageBackground(canvas: Canvas, page: RectF) {
+        paint.reset()
+        paint.isAntiAlias = true
+        paint.isFilterBitmap = true
+        paint.style = Paint.Style.FILL
+        paint.color = parseColor(project.backgroundColor, Color.WHITE)
+        when (project.backgroundMode) {
+            BackgroundMode.GRADIENT -> {
+                paint.shader = LinearGradient(0f, 0f, page.width(), page.height(),
+                    parseColor(project.gradientStart, Color.WHITE),
+                    parseColor(project.gradientEnd, Color.LTGRAY), Shader.TileMode.CLAMP)
+                canvas.drawRect(page, paint)
+                paint.shader = null
+            }
+            BackgroundMode.IMAGE -> {
+                canvas.drawRect(page, paint)
+                MediaAssets.bitmap(project.backgroundImage)?.let { drawCover(canvas, it, page) }
+            }
+            else -> canvas.drawRect(page, paint)
+        }
+        if (project.backgroundMode == BackgroundMode.GRID) {
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 0.6f
+            paint.color = Color.argb(65, 105, 115, 136)
+            var x = 0
+            while (x <= project.pageWidth) {
+                canvas.drawLine(x.toFloat(), 0f, x.toFloat(), page.bottom, paint)
+                x += 20
+            }
+            var y = 0
+            while (y <= project.pageHeight) {
+                canvas.drawLine(0f, y.toFloat(), page.right, y.toFloat(), paint)
+                y += 20
+            }
+        }
+    }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        canvas.drawColor(background)
+        canvas.drawColor(canvasBackground)
         canvas.save()
         canvas.translate(originX, originY)
         canvas.scale(zoom, zoom)
-
-        val w = project.pageWidth.toFloat()
-        val h = project.pageHeight.toFloat()
-        paint.style = Paint.Style.FILL
-        paint.color = Color.WHITE
-        canvas.drawRect(0f, 0f, w, h, paint)
+        val page = RectF(0f, 0f, project.pageWidth.toFloat(), project.pageHeight.toFloat())
         canvas.save()
-        canvas.clipRect(0f, 0f, w, h)
-
-        paint.strokeWidth = 0.6f
-        paint.color = Color.rgb(244, 246, 249)
-        for (x in 0..project.pageWidth step 20) {
-            canvas.drawLine(x.toFloat(), 0f, x.toFloat(), h, paint)
-        }
-        for (y in 0..project.pageHeight step 20) {
-            canvas.drawLine(0f, y.toFloat(), w, y.toFloat(), paint)
-        }
-
-        project.elements.forEach { element ->
+        canvas.clipRect(page)
+        drawPageBackground(canvas, page)
+        for (element in project.elements) {
+            if (!element.visible) continue
             val rect = RectF(element.x, element.y,
                 element.x + element.width, element.y + element.height)
-            paint.style = Paint.Style.FILL
-            paint.color = parseColor(element.fill, Color.LTGRAY)
-
-            if (element.kind != ElementKind.TEXT) {
-                canvas.drawRoundRect(rect, 10f, 10f, paint)
-            }
-
-            if (element.kind != ElementKind.BOX) {
-                textPaint.color = parseColor(element.textColor, Color.BLACK)
-                textPaint.typeface = Typeface.create(
-                    "sans-serif",
-                    if (element.kind == ElementKind.BUTTON) Typeface.BOLD else Typeface.NORMAL
-                )
-                textPaint.textSize = element.fontSize
-                val baseline = rect.centerY() -
-                    (textPaint.ascent() + textPaint.descent()) / 2f
+            paint.reset()
+            paint.isAntiAlias = true
+            paint.isFilterBitmap = true
+            paint.alpha = (element.opacity * 255).toInt().coerceIn(0, 255)
+            val r = element.radius.coerceAtMost(min(element.width, element.height) / 2)
+            if (element.kind == ElementKind.IMAGE) {
                 canvas.save()
-                canvas.clipRect(rect)
-                val label = element.text.replace('\n', ' ')
-                if (element.kind == ElementKind.BUTTON) {
-                    canvas.drawText(label, rect.centerX() - textPaint.measureText(label) / 2f,
-                        baseline, textPaint)
-                } else {
-                    canvas.drawText(label, rect.left + 2f, baseline, textPaint)
+                canvas.clipPath(android.graphics.Path().apply { addRoundRect(rect, r, r,
+                    android.graphics.Path.Direction.CW) })
+                val bitmap = MediaAssets.bitmap(element.imageData)
+                if (bitmap != null) drawCover(canvas, bitmap, rect)
+                else {
+                    paint.color = Color.LTGRAY
+                    canvas.drawRect(rect, paint)
                 }
                 canvas.restore()
+            } else if (element.kind != ElementKind.TEXT) {
+                paint.color = parseColor(element.fill, Color.LTGRAY)
+                paint.alpha = (element.opacity * 255).toInt().coerceIn(0, 255)
+                canvas.drawRoundRect(rect, r, r, paint)
             }
 
-            if (selectedId == element.id) {
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 2f / zoom
-                paint.color = accent
-                canvas.drawRect(rect, paint)
-                paint.style = Paint.Style.FILL
-                val r = 4.5f / zoom
-                for (point in arrayOf(
-                    floatArrayOf(rect.left, rect.top),
-                    floatArrayOf(rect.right, rect.top),
-                    floatArrayOf(rect.left, rect.bottom),
-                    floatArrayOf(rect.right, rect.bottom)
-                )) {
-                    canvas.drawCircle(point[0], point[1], r, paint)
-                }
+            if (element.kind == ElementKind.TEXT || element.kind == ElementKind.BUTTON) {
+                textPaint.reset()
+                textPaint.isAntiAlias = true
+                textPaint.color = parseColor(element.textColor, Color.BLACK)
+                textPaint.alpha = (element.opacity * 255).toInt().coerceIn(0, 255)
+                textPaint.typeface = MediaAssets.typeface(context,
+                    project.fonts[element.fontId]) ?: Typeface.create(
+                        "sans-serif", if (element.kind == ElementKind.BUTTON)
+                            Typeface.BOLD else Typeface.NORMAL)
+                textPaint.textSize = element.fontSize
+                val innerWidth = (rect.width() - 8f).toInt().coerceAtLeast(1)
+                val layout = StaticLayout.Builder.obtain(element.text, 0,
+                    element.text.length, textPaint, innerWidth)
+                    .setAlignment(if (element.kind == ElementKind.BUTTON)
+                        Layout.Alignment.ALIGN_CENTER else Layout.Alignment.ALIGN_NORMAL)
+                    .setIncludePad(false).build()
+                canvas.save()
+                canvas.clipRect(rect)
+                canvas.translate(rect.left + 4f,
+                    rect.top + max(0f, (rect.height() - layout.height) / 2f))
+                layout.draw(canvas)
+                canvas.restore()
             }
         }
         canvas.restore()
+
+        selected()?.takeIf { it.visible }?.let { selected ->
+            val r = RectF(selected.x, selected.y, selected.x + selected.width,
+                selected.y + selected.height)
+            paint.reset()
+            paint.isAntiAlias = true
+            paint.color = accent
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 1.6f / zoom
+            canvas.drawRect(r, paint)
+            paint.style = Paint.Style.FILL
+            val size = 5.5f / zoom
+            val points = arrayOf(r.left to r.top, r.right to r.top,
+                r.left to r.bottom, r.right to r.bottom)
+            for ((x, y) in points) {
+                paint.color = Color.WHITE
+                canvas.drawRect(x-size, y-size, x+size, y+size, paint)
+                paint.color = accent
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1.7f / zoom
+                canvas.drawRect(x-size, y-size, x+size, y+size, paint)
+                paint.style = Paint.Style.FILL
+            }
+        }
         canvas.restore()
     }
 
-    private fun hitTest(screenX: Float, screenY: Float): DesignElement? {
-        val x = (screenX - originX) / zoom
-        val y = (screenY - originY) / zoom
-        return project.elements.asReversed().firstOrNull {
-            x >= it.x && x <= it.x + it.width &&
+    private fun worldX(screenX: Float): Float = (screenX - originX) / zoom
+    private fun worldY(screenY: Float): Float = (screenY - originY) / zoom
+
+    private fun handleAt(x: Float, y: Float): Gesture? {
+        val e = selected() ?: return null
+        if (!e.visible || e.locked) return null
+        val pad = max(13f, dp(18f) / zoom)
+        val points = arrayOf(
+            Triple(e.x, e.y, Gesture.RESIZE_NW),
+            Triple(e.x+e.width, e.y, Gesture.RESIZE_NE),
+            Triple(e.x, e.y+e.height, Gesture.RESIZE_SW),
+            Triple(e.x+e.width, e.y+e.height, Gesture.RESIZE_SE))
+        return points.firstOrNull { abs(x-it.first) < pad && abs(y-it.second) < pad }?.third
+    }
+
+    private fun hitTest(x: Float, y: Float): DesignElement? =
+        project.elements.asReversed().firstOrNull {
+            it.visible && !it.locked && x >= it.x && x <= it.x + it.width &&
                 y >= it.y && y <= it.y + it.height
         }
+
+    private fun snapped(value: Float, axis: Char, except: String): Float {
+        if (!snapToGuides) return value
+        val stops = mutableListOf(if (axis == 'x')
+            project.pageWidth / 2f else project.pageHeight / 2f)
+        stops.add(0f)
+        stops.add(if (axis == 'x') project.pageWidth.toFloat()
+            else project.pageHeight.toFloat())
+        for (e in project.elements) {
+            if (e.id == except || !e.visible) continue
+            if (axis == 'x') {
+                stops.add(e.x); stops.add(e.x + e.width)
+                stops.add(e.x + e.width/2)
+            } else {
+                stops.add(e.y); stops.add(e.y + e.height)
+                stops.add(e.y + e.height/2)
+            }
+        }
+        return stops.firstOrNull { abs(value - it) <= 5f / zoom } ?: value
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        scaleDetector.onTouchEvent(event)
+        detector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                lastX = event.x
-                lastY = event.y
-                moved = false
-                val hit = hitTest(event.x, event.y)
-                dragElement = hit != null
-                select(hit?.id)
+                downX = event.x
+                downY = event.y
+                changed = false
+                val x = worldX(event.x)
+                val y = worldY(event.y)
+                val resize = handleAt(x, y)
+                val hit = if (resize == null) hitTest(x, y) else selected()
+                if (resize != null) gesture = resize
+                else {
+                    select(hit?.id)
+                    gesture = if (hit != null) Gesture.DRAG else Gesture.PAN
+                }
+                selected()?.let { originalRect = RectF(it.x, it.y,
+                    it.x + it.width, it.y + it.height) }
                 return true
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
-                dragElement = false
+                gesture = Gesture.PAN
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                if (event.pointerCount == 1 && !scaleDetector.isInProgress) {
-                    val dx = event.x - lastX
-                    val dy = event.y - lastY
-                    if (dx != 0f || dy != 0f) {
-                        if (dragElement) {
-                            selected()?.let {
-                                it.x = (it.x + dx / zoom).coerceIn(
-                                    0f, (project.pageWidth - it.width).coerceAtLeast(0f))
-                                it.y = (it.y + dy / zoom).coerceIn(
-                                    0f, (project.pageHeight - it.height).coerceAtLeast(0f))
-                                moved = true
-                            }
-                        } else {
-                            originX += dx
-                            originY += dy
-                        }
-                        invalidate()
+                if (event.pointerCount == 1 && !detector.isInProgress && !scaling) {
+                    val dx = (event.x - downX) / zoom
+                    val dy = (event.y - downY) / zoom
+                    val element = selected()
+                    if (gesture == Gesture.PAN || element == null || element.locked) {
+                        originX += event.x - downX
+                        originY += event.y - downY
+                        downX = event.x; downY = event.y
+                    } else if (gesture == Gesture.DRAG) {
+                        val x = snapped(originalRect.left + dx, 'x', element.id)
+                        val y = snapped(originalRect.top + dy, 'y', element.id)
+                        element.x = x.coerceIn(0f, max(0f, project.pageWidth - element.width))
+                        element.y = y.coerceIn(0f, max(0f, project.pageHeight - element.height))
+                        changed = true
+                    } else {
+                        var l = originalRect.left
+                        var t = originalRect.top
+                        var r = originalRect.right
+                        var b = originalRect.bottom
+                        if (gesture == Gesture.RESIZE_NW || gesture == Gesture.RESIZE_SW) l += dx
+                        else r += dx
+                        if (gesture == Gesture.RESIZE_NW || gesture == Gesture.RESIZE_NE) t += dy
+                        else b += dy
+                        l = l.coerceIn(0f, r - 20f)
+                        t = t.coerceIn(0f, b - 20f)
+                        r = r.coerceIn(l + 20f, project.pageWidth.toFloat())
+                        b = b.coerceIn(t + 20f, project.pageHeight.toFloat())
+                        element.x = l; element.y = t
+                        element.width = r - l; element.height = b - t
+                        changed = true
                     }
+                    invalidate()
                 }
-                lastX = event.x
-                lastY = event.y
                 return true
             }
-            MotionEvent.ACTION_POINTER_UP -> {
-                lastX = event.getX(0)
-                lastY = event.getY(0)
-                return true
-            }
-            MotionEvent.ACTION_UP -> {
-                if (moved) onChanged()
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (changed) onChanged()
                 else performClick()
-                dragElement = false
-                return true
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                if (moved) onChanged()
-                dragElement = false
+                gesture = Gesture.PAN
                 return true
             }
         }
