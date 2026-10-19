@@ -4,13 +4,14 @@
 
 ZENO is an independent, mobile-first editor for designing web pages visually and exporting a real HTML/CSS project. The codebase is native Kotlin and does not depend on a hosted backend.
 
-## Current milestone — 0.4.0 (experimental)
+## Current milestone — 0.5.0 (experimental)
 
 - Visual page canvas with pinch-to-zoom, panning, selection, dragging, four resize handles, proportional image resizing and alignment snapping.
 - Add text, shapes, buttons and imported images. Adjust position, size, radius, visibility, lock, color and opacity with a HSV/HEX picker.
 - Organize layers with live thumbnails; change stacking, visibility and locking.
-- Responsive artboard composition with prominent two-column hero layout on tablet/desktop, larger typography, fluid artwork and vertical mobile layout. Per-breakpoint editable geometry is stored without drift; generated HTML has breakpoint CSS.
-- Native high-resolution glass lens with separable blur, smooth inward refraction near the rim and specular highlights. Web export uses CSS backdrop-filter and a translucent surface. Page backgrounds: solid color, grid, gradient, or imported image.
+- Responsive artboards: two-column tablet/desktop hero, vertical mobile arrangement, per-device editable geometry and persisted horizontal/vertical constraints (left, center, right, stretch; top, center, bottom).
+- Multiple vertically stacked scrollable sections (button `+ Seção ↓`); jump between sections in the editor, scroll through them in preview and exported HTML.
+- Native cached glass lens: independent controls for refraction strength, frost, edge depth, RGB dispersion and specular light, with lower tint and background region caching. Glass recomputes after an edit, not every pan/zoom frame. Web export uses CSS backdrop-filter and a translucent surface. Page backgrounds: solid color, grid, gradient, or imported image.
 - Undo and redo with local automatic draft saving.
 - Import TTF/OTF fonts. Open or save editable JSON projects with embedded images/fonts through Android's document picker.
 - Preview the generated page in an embedded WebView (JavaScript disabled).
@@ -39,7 +40,7 @@ The APK is produced at:
 
     app/build/outputs/apk/debug/app-debug.apk
 
-In GitHub, open the **Actions** tab, select **Android APK**, and download the **ZENO-v0.4.0-debug** artifact after a successful workflow. The debug APK is intended for development/testing, not Play Store distribution or permanent release signing.
+In GitHub, open the **Actions** tab, select **Android APK**, and download the **ZENO-v0.5.0-debug** artifact after a successful workflow. The debug APK is intended for development/testing, not Play Store distribution or permanent release signing.
 
 ## Roadmap
 
@@ -54,3 +55,9 @@ ZENO is separate from Noise! and will have its own build and release lifecycle.
 ## Reference and independence
 
 Design architecture studied against [Figcraft](https://github.com/storytold/figcraft): auto layout sizing modes, responsive composition and a high-resolution optical glass pipeline. ZENO remains independently implemented in Kotlin for Android; it does not incorporate Rust code from Figcraft. The native pixel-processing glass effect may affect frame rates on slower devices and is visually different from CSS backdrop filters.
+
+## Rendering notes
+
+The glass implementation borrows concepts, not source code, from [Figcraft's glass renderer](https://github.com/storytold/figcraft/blob/main/crates/render/src/glass.rs): lens depth, edge refraction, chromatic dispersion, frost and directional rim lighting. Cached, cropped bitmaps prevent recomputing expensive refraction for each canvas pan/zoom frame. Recomposition occurs when the scene changes. HTML glass is an approximation via CSS backdrop-filter and cannot reproduce identical optical distortion. Performance and visual fidelity still require device testing.
+
+The new anchored layout lets you constrain specific elements, but freeform automatic composition remains heuristic. Authoring independent breakpoints is recommended for complex sites; fully nested auto-layout frames are not implemented yet.
