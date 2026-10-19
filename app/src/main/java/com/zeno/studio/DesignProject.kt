@@ -97,14 +97,22 @@ class DesignProject(
     var gradientStart: String = "#EDF1FF",
     var gradientEnd: String = "#FFFFFF",
     var backgroundImage: String = "",
-    val fonts: MutableMap<String, EmbeddedFont> = mutableMapOf()
+    val fonts: MutableMap<String, EmbeddedFont> = mutableMapOf(),
+    val breakpointLayouts: MutableMap<Int, MutableMap<String, ResponsiveLayout.Geometry>> = mutableMapOf()
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
-        put("format", "zeno-project"); put("version", 2)
+        put("format", "zeno-project"); put("version", 3)
         put("pageWidth", pageWidth); put("pageHeight", pageHeight)
         put("backgroundMode", backgroundMode.name); put("backgroundColor", backgroundColor)
         put("gradientStart", gradientStart); put("gradientEnd", gradientEnd)
         put("backgroundImage", backgroundImage)
+        put("breakpointLayouts", JSONObject().apply {
+            breakpointLayouts.forEach { (width, geometry) ->
+                put(width.toString(),JSONObject().apply {
+                    geometry.forEach { (id, item) -> put(id,item.toJson()) }
+                })
+            }
+        })
         put("fonts", JSONObject().apply {
             fonts.forEach { (key, value) -> put(key, value.toJson()) }
         })
@@ -121,6 +129,24 @@ class DesignProject(
         gradientStart = json.optString("gradientStart", "#EDF1FF")
         gradientEnd = json.optString("gradientEnd", "#FFFFFF")
         backgroundImage = json.optString("backgroundImage", "")
+        breakpointLayouts.clear()
+        json.optJSONObject("breakpointLayouts")?.let { all ->
+            val it = all.keys()
+            while(it.hasNext()) {
+                val width = it.next().toIntOrNull() ?: continue
+                if(width !in 240..2500) continue
+                val group=all.optJSONObject(width.toString()) ?: continue
+                val out=mutableMapOf<String,ResponsiveLayout.Geometry>()
+                val ids=group.keys()
+                while(ids.hasNext()) {
+                    val id=ids.next()
+                    group.optJSONObject(id)?.let { o->
+                        out[id]=ResponsiveLayout.Geometry.fromJson(o)
+                    }
+                }
+                breakpointLayouts[width]=out
+            }
+        }
         fonts.clear()
         json.optJSONObject("fonts")?.let { obj ->
             val keys = obj.keys()
