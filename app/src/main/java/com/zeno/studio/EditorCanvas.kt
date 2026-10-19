@@ -114,10 +114,10 @@ class EditorCanvas(
         val padding = dp(18f)
         zoom = min(
             (width - 2f * padding) / project.pageWidth,
-            (height - 2f * padding) / project.pageHeight
+            (height - 2f * padding) / project.sectionHeight()
         ).coerceIn(0.12f, 3f)
         originX = (width - project.pageWidth * zoom) / 2f
-        originY = (height - project.pageHeight * zoom) / 2f
+        originY = (height - project.sectionHeight() * zoom) / 2f
         invalidate()
     }
 
@@ -422,11 +422,13 @@ class EditorCanvas(
 
     private fun snapped(value: Float, axis: Char, except: String): Float {
         if (!snapToGuides) return value
+        val section=activeScreen
+        val sh=project.sectionHeight()
         val stops = mutableListOf(if (axis == 'x')
-            project.pageWidth / 2f else project.pageHeight / 2f)
-        stops.add(0f)
+            project.pageWidth / 2f else sh*(section+0.5f))
+        stops.add(if (axis=='x') 0f else sh*section)
         stops.add(if (axis == 'x') project.pageWidth.toFloat()
-            else project.pageHeight.toFloat())
+            else sh*(section+1))
         for (e in project.elements) {
             if (e.id == except || !e.visible) continue
             if (axis == 'x') {
@@ -449,6 +451,7 @@ class EditorCanvas(
                 changed = false
                 val x = worldX(event.x)
                 val y = worldY(event.y)
+                activeScreen=(y/project.sectionHeight()).toInt().coerceIn(0,project.screens-1)
                 val resize = handleAt(x, y)
                 val hit = if (resize == null) hitTest(x, y) else selected()
                 if (resize != null) gesture = resize
