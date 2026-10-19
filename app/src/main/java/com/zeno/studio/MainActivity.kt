@@ -145,6 +145,8 @@ class MainActivity : Activity() {
             notify(if (canvasView.snapToGuides) "Guias ativas" else "Guias desligadas")
         })
         tools.addView(action("Tela") { chooseCanvasSize() })
+        tools.addView(action("+ Seção ↓") { canvasView.appendScreen() })
+        tools.addView(action("Seções") { showSections() })
         tools.addView(action("Ajustar") { canvasView.fitToScreen() })
         toolScroll.addView(tools)
         root.addView(toolScroll, LinearLayout.LayoutParams(
@@ -272,14 +274,31 @@ class MainActivity : Activity() {
             })
         }
         if (element.kind == ElementKind.GLASS) {
-            numbers.addView(numberField("Vidro", element.glassStrength * 100f) {
+            numbers.addView(numberField("Força", element.glassStrength * 100f) {
                 element.glassStrength = (it / 100f).coerceIn(0f, 1f)
+                propertyChanged()
+            })
+            numbers.addView(numberField("Desfoque", element.glassFrost * 100f) {
+                element.glassFrost = (it / 100f).coerceIn(0f,1f)
+                propertyChanged()
+            })
+            numbers.addView(numberField("Lente", element.glassDepth * 100f) {
+                element.glassDepth = (it / 100f).coerceIn(0f,1f)
+                propertyChanged()
+            })
+            numbers.addView(numberField("RGB", element.glassDispersion * 100f) {
+                element.glassDispersion = (it / 100f).coerceIn(0f,1f)
+                propertyChanged()
+            })
+            numbers.addView(numberField("Luz", element.glassLight * 100f) {
+                element.glassLight = (it / 100f).coerceIn(0f,1f)
                 propertyChanged()
             })
         }
         inspector.addView(numbersScroll)
 
         val (toolsScroll, toolsRow) = scrollRow()
+        toolsRow.addView(action("Âncoras") { showAnchorPicker(element) })
         if (element.kind == ElementKind.TEXT || element.kind == ElementKind.BUTTON) {
             toolsRow.addView(action("Cor do texto") {
                 ColorPicker.show(this, element.textColor, element.opacity) { hex, alpha ->
@@ -377,7 +396,7 @@ class MainActivity : Activity() {
     }
 
     private fun propertyChanged() {
-        canvasView.invalidate()
+        canvasView.invalidateGlassCache()
         rememberChange()
     }
 
@@ -401,12 +420,45 @@ class MainActivity : Activity() {
         historyIndex = index
         project.restore(JSONObject(history[index]))
         canvasView.select(null)
-        canvasView.invalidate()
+        canvasView.invalidateGlassCache()
         autosave()
     }
 
     private fun undo() = restoreHistory(historyIndex - 1)
     private fun redo() = restoreHistory(historyIndex + 1)
+
+    private fun showAnchorPicker(element:DesignElement) {
+        val horizontal=arrayOf("Automático","Esquerda","Centro","Direita","Preencher largura")
+        AlertDialog.Builder(this).setTitle("ÂNCORA HORIZONTAL")
+            .setSingleChoiceItems(horizontal,element.horizontalAnchor.ordinal) { dlg,index ->
+                element.horizontalAnchor=HorizontalAnchor.entries[index]
+                if(element.horizontalAnchor==HorizontalAnchor.CENTER)
+                    element.x=(project.pageWidth-element.width)/2f
+                propertyChanged()
+                dlg.dismiss()
+                val vertical=arrayOf("Automático","Topo","Centro da seção","Base")
+                AlertDialog.Builder(this).setTitle("ÂNCORA VERTICAL")
+                    .setSingleChoiceItems(vertical,element.verticalAnchor.ordinal) { second,choice ->
+                        element.verticalAnchor=VerticalAnchor.entries[choice]
+                        if(element.verticalAnchor==VerticalAnchor.CENTER) {
+                            val sh=project.sectionHeight()
+                            val section=(element.y/sh).toInt().coerceIn(0,project.screens-1)
+                            element.y=section*sh+(sh-element.height)/2f
+                        }
+                        propertyChanged()
+                        second.dismiss()
+                        showInspector(element)
+                    }.setNegativeButton("Manter",null).show()
+            }.setNegativeButton("Cancelar",null).show()
+    }
+
+    private fun showSections() {
+        val choices=Array(project.screens) { i -> "Seção " + (i+1) }
+        AlertDialog.Builder(this).setTitle("NAVEGAÇÃO VERTICAL")
+            .setItems(choices) { _,index -> canvasView.scrollToSection(index) }
+            .setPositiveButton("Adicionar abaixo") { _,_ -> canvasView.appendScreen() }
+            .setNegativeButton("Fechar",null).show()
+    }
 
     private fun chooseCanvasSize() {
         val names = arrayOf("Celular · 390 × 844", "Tablet · 768 × 1024",
@@ -415,6 +467,7 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this).setTitle("Formato do canvas")
             .setItems(names) { _, index ->
                 ResponsiveLayout.apply(project, sizes[index].first, sizes[index].second)
+                canvasView.invalidateGlassCache()
                 canvasView.fitToScreen()
                 rememberChange()
                 showInspector(canvasView.selected())
@@ -501,6 +554,7 @@ class MainActivity : Activity() {
                     }
                     project.restore(obj)
                     MediaAssets.clear()
+                    canvasView.invalidateGlassCache()
                     canvasView.select(null)
                     canvasView.fitToScreen()
                     history.clear()
