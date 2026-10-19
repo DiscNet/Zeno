@@ -97,7 +97,7 @@ class EditorCanvas(
         }
     }
 
-    fun bringToFront() {
+    fun bringSelectedToFront() {
         val element = selected() ?: return
         project.elements.remove(element)
         project.elements.add(element)

@@ -30,7 +30,7 @@ import kotlin.math.roundToInt
 class MainActivity : Activity() {
     private val ink = Color.rgb(245, 246, 250)
     private val muted = Color.rgb(170, 175, 188)
-    private val background = Color.rgb(17, 18, 23)
+    private val editorBg = Color.rgb(17, 18, 23)
     private val surface = Color.rgb(26, 28, 35)
     private val border = Color.rgb(55, 58, 69)
     private val accent = Color.rgb(112, 130, 255)
@@ -45,8 +45,8 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = background
-        window.navigationBarColor = background
+        window.statusBarColor = editorBg
+        window.navigationBarColor = editorBg
         project = loadDraft()
         history.add(project.toJson().toString())
         historyIndex = 0
@@ -95,7 +95,7 @@ class MainActivity : Activity() {
     private fun buildInterface() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(background)
+            setBackgroundColor(editorBg)
         }
         setContentView(root)
 
@@ -189,7 +189,7 @@ class MainActivity : Activity() {
         ).apply { setTypeface(typeface, Typeface.BOLD) }
         heading.addView(title, LinearLayout.LayoutParams(0, dp(35), 1f))
         if (element != null) {
-            heading.addView(action("Frente") { canvasView.bringToFront() })
+            heading.addView(action("Frente") { canvasView.bringSelectedToFront() })
             heading.addView(action("Excluir") { canvasView.deleteSelected() })
         }
         inspector.addView(heading)
@@ -271,7 +271,7 @@ class MainActivity : Activity() {
             textSize = 13f
             setTextColor(ink)
             setHintTextColor(muted)
-            background = rounded(background, 8, border)
+            background = rounded(editorBg, 8, border)
             setPadding(dp(10), 0, dp(10), 0)
             if (numeric) {
                 inputType = InputType.TYPE_CLASS_NUMBER or
