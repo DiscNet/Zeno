@@ -64,9 +64,12 @@ class EditorExtras(
                     ElementKind.BOX -> "▢"
                     ElementKind.BUTTON -> "▣"
                     ElementKind.IMAGE -> "▧"
+                    ElementKind.GLASS -> "◇"
                 } + "  " + (element.text.ifBlank {
                     if (element.kind == ElementKind.IMAGE) "Imagem" else "Forma"
                 }).take(12)
+                row.addView(LayerThumbnail(activity,element),
+                    LinearLayout.LayoutParams(dp(40),dp(40)).apply { rightMargin=dp(9) })
                 row.addView(button(shortName) {
                     canvas.select(element.id); dialog.dismiss()
                 }, LinearLayout.LayoutParams(0, dp(45), 1f))
@@ -175,8 +178,18 @@ class EditorExtras(
                         changed()
                     } else {
                         val target = project.elements.firstOrNull { it.id == pendingImageId }
-                        if (target == null) canvas.add(ElementKind.IMAGE, image)
-                        else { target.imageData = image; changed() }
+                        val imageBitmap = MediaAssets.bitmap(image)
+                        val ratio = if (imageBitmap!=null && imageBitmap.height>0)
+                            imageBitmap.width.toFloat()/imageBitmap.height else 1f
+                        if (target == null) canvas.add(ElementKind.IMAGE, image, ratio)
+                        else {
+                            target.imageData = image
+                            target.imageRatio = ratio.coerceIn(0.05f,30f)
+                            if (target.aspectLocked) {
+                                target.height = target.width/target.imageRatio
+                            }
+                            changed()
+                        }
                     }
                     pendingImageId = null
                     notice("Imagem importada")
