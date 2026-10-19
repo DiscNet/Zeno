@@ -207,7 +207,7 @@ class EditorCanvas(
         drawPageBackground(canvas, page)
 
         val hasGlass = project.elements.any { it.visible && it.kind == ElementKind.GLASS }
-        val factor = min(0.48f, 900f / max(project.pageWidth, project.pageHeight))
+        val factor = min(1.5f, 2200f / max(project.pageWidth, project.pageHeight))
         val buffer = if (hasGlass) Bitmap.createBitmap(
             max(1,(project.pageWidth*factor).toInt()),
             max(1,(project.pageHeight*factor).toInt()), Bitmap.Config.ARGB_8888) else null
