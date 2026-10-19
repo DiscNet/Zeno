@@ -34,15 +34,15 @@ object HtmlExporter {
         out.append(".text{display:flex;align-items:center;white-space:pre-wrap;overflow-wrap:anywhere}")
         out.append(".button{display:flex;align-items:center;justify-content:center;border:0;cursor:pointer}")
         out.append(".image{display:block;object-fit:cover}")
-        out.append(".glass{background:rgba(228,239,255,.16);")
-        out.append("backdrop-filter:blur(7px) saturate(1.18);")
-        out.append("-webkit-backdrop-filter:blur(7px) saturate(1.18);")
-        out.append("border:1.5px solid rgba(255,255,255,.8);")
-        out.append("box-shadow:inset 0 1px 1px rgba(255,255,255,.8),")
-        out.append("inset 0 -1px 4px rgba(35,50,80,.12),0 8px 25px rgba(0,0,0,.07)}")
+        out.append(".glass{background:rgba(135,164,191,.06);")
+        out.append("backdrop-filter:blur(3px) saturate(1.06);")
+        out.append("-webkit-backdrop-filter:blur(3px) saturate(1.06);")
+        out.append("border:1px solid rgba(246,251,255,.5);")
+        out.append("box-shadow:inset 0 1px 1px rgba(255,255,255,.45),")
+        out.append("inset 0 -1px 4px rgba(25,45,75,.18),0 6px 20px rgba(0,0,0,.04)}")
         out.append(".glass::after{content:'';position:absolute;inset:0;pointer-events:none;")
-        out.append("background:linear-gradient(118deg,rgba(255,255,255,.24),transparent 48%,")
-        out.append("rgba(195,219,246,.1));mix-blend-mode:screen}")
+        out.append("background:linear-gradient(118deg,rgba(255,255,255,.09),transparent 48%,")
+        out.append("rgba(145,175,205,.06));mix-blend-mode:screen}")
         val registered = mutableMapOf<String, String>()
         var fontCounter = 0
         project.fonts.forEach { (key, font) ->
@@ -91,7 +91,7 @@ object HtmlExporter {
             val geometry = ResponsiveLayout.forViewport(project, width)
             if (media.isNotEmpty()) out.append("@media ").append(media).append("{")
             out.append(".stage{width:min(100%,").append(width)
-                .append("px);min-height:max(100vh,").append(height)
+                .append("px);min-height:max(100vh,").append(height * project.screens)
                 .append("px);aspect-ratio:auto}")
             project.elements.forEachIndexed { index, element ->
                 val g = geometry[element.id] ?: return@forEachIndexed
@@ -133,13 +133,13 @@ object HtmlExporter {
                 }
                 ElementKind.GLASS -> {
                     out.append("<div class=\"item glass z").append(index).append("\" style=\"")
-                        .append(style).append(";background:rgba(230,240,255,")
-                        .append(num(0.10f + e.glassStrength * 0.12f)).append(")")
+                        .append(style).append(";background:rgba(150,180,210,")
+                        .append(num(0.02f + e.glassLight * 0.035f)).append(")")
                         .append(";backdrop-filter:blur(")
-                        .append(num(3f + 8f * e.glassStrength))
+                        .append(num(1f + 9f * e.glassFrost))
                         .append("px) saturate(1.25);")
                         .append("-webkit-backdrop-filter:blur(")
-                        .append(num(3f + 8f * e.glassStrength))
+                        .append(num(1f + 9f * e.glassFrost))
                         .append("px) saturate(1.25)\"></div>\n")
                 }
             }
