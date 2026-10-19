@@ -38,7 +38,7 @@ object ResponsiveLayout {
                 it.x,it.y,it.width,it.height,it.fontSize) }.toMutableMap()
     }
 
-    fun compute(elements:List<DesignElement>, originalWidth:Int,
+    private fun computeSingle(elements:List<DesignElement>, originalWidth:Int,
         targetWidth:Int): Map<String,Geometry> {
         if(elements.isEmpty()) return emptyMap()
         if(targetWidth == originalWidth) return elements.associate {
@@ -164,6 +164,53 @@ object ResponsiveLayout {
         return result
     }
 
+    fun compute(elements:List<DesignElement>,originalWidth:Int,targetWidth:Int,
+        sourceHeight:Float=844f,targetHeight:Float=844f,screens:Int=1):Map<String,Geometry> {
+        val output=linkedMapOf<String,Geometry>()
+        for(section in 0 until screens.coerceAtLeast(1)) {
+            val sectionStart=section*sourceHeight
+            val local=elements.filter { e ->
+                val index=(e.y/sourceHeight).toInt().coerceIn(0,screens-1)
+                index==section
+            }.map { e->e.copy(y=e.y-sectionStart) }
+            if(local.isEmpty())continue
+            val generated=computeSingle(local,originalWidth,targetWidth)
+            for(e in local) {
+                val orig=elements.first { it.id==e.id }
+                val candidate=generated[e.id] ?: continue
+                var x=candidate.x
+                var y=candidate.y
+                var w=candidate.w
+                var h=candidate.h
+                when(orig.horizontalAnchor) {
+                    HorizontalAnchor.AUTO -> Unit
+                    HorizontalAnchor.LEFT -> x=e.x
+                    HorizontalAnchor.CENTER -> x=(targetWidth-w)/2f
+                    HorizontalAnchor.RIGHT -> x=targetWidth -
+                        (originalWidth-(e.x+e.width))-w
+                    HorizontalAnchor.STRETCH -> {
+                        val left=e.x.coerceAtLeast(0f)
+                        val right=(originalWidth-e.x-e.width).coerceAtLeast(0f)
+                        x=left
+                        w=max(20f,targetWidth-left-right)
+                        if(orig.kind==ElementKind.IMAGE && orig.aspectLocked)
+                            h=w/orig.imageRatio.coerceAtLeast(.05f)
+                    }
+                }
+                when(orig.verticalAnchor) {
+                    VerticalAnchor.AUTO -> Unit
+                    VerticalAnchor.TOP -> y=e.y
+                    VerticalAnchor.CENTER -> y=(targetHeight-h)/2f
+                    VerticalAnchor.BOTTOM -> y=targetHeight-
+                        (sourceHeight-e.y-e.height)-h
+                }
+                output[e.id]=Geometry(x.coerceIn(0f,max(0f,targetWidth-w)),
+                    section*targetHeight+y.coerceAtLeast(0f),w,h,candidate.font)
+            }
+        }
+        return output
+    }
+
     fun apply(project:DesignProject, newW:Int,newH:Int) {
         if(project.pageWidth==newW && project.pageHeight==newH) return
         capture(project)
@@ -176,12 +223,13 @@ object ResponsiveLayout {
                     e.copy(x=g.x,y=g.y,width=g.w,height=g.h,fontSize=g.font)
                 } ?: e
             }
-            compute(reference,originalWidth,newW).toMutableMap().also {
+            compute(reference,originalWidth,newW,
+                project.sectionHeight(),newH.toFloat(),project.screens).toMutableMap().also {
                 project.breakpointLayouts[newW]=it
             }
         }
         project.pageWidth=newW
-        project.pageHeight=newH
+        project.pageHeight=newH*project.screens
         project.elements.forEach { e ->
             val g=map[e.id] ?: return@forEach
             e.x=g.x;e.y=g.y;e.width=g.w;e.height=g.h;e.fontSize=g.font
@@ -194,7 +242,10 @@ object ResponsiveLayout {
         }
         project.breakpointLayouts[width]?.let { snapshot ->
             // Existing breakpoints keep user corrections for each artboard.
-            val defaults=compute(project.elements,project.pageWidth,width)
+            val targetHeight=when { width<600 -> 844f
+                width<1024 -> 1024f else -> 800f }
+            val defaults=compute(project.elements,project.pageWidth,width,
+                project.sectionHeight(),targetHeight,project.screens)
             return defaults+(snapshot.filterKeys { id ->
                 project.elements.any { it.id==id }
             })
@@ -205,6 +256,12 @@ object ResponsiveLayout {
             known[e.id]?.let {g->e.copy(x=g.x,y=g.y,
                 width=g.w,height=g.h,fontSize=g.font)} ?: e
         } else project.elements
-        return compute(base,baseWidth,width)
+        val targetHeight=when {
+            width<600 -> 844f
+            width<1024 -> 1024f
+            else -> 800f
+        }
+        return compute(base,baseWidth,width,project.sectionHeight(),
+            targetHeight,project.screens)
     }
 }
