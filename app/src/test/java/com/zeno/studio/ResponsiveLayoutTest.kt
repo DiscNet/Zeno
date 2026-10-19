@@ -48,4 +48,40 @@ class ResponsiveLayoutTest {
         ResponsiveLayout.apply(p,768,1024)
         assertEquals(2f,e.width/e.height,.01f)
     }
+    @Test fun centerAnchorStaysCenteredAcrossBreakpoints() {
+        val p=DesignProject()
+        val shape=DesignElement(x=50f,y=60f,width=120f,height=90f,
+            horizontalAnchor=HorizontalAnchor.CENTER)
+        p.elements.add(shape)
+        ResponsiveLayout.apply(p,1200,800)
+        assertEquals((1200f-shape.width)/2f,shape.x,.01f)
+        ResponsiveLayout.apply(p,768,1024)
+        assertEquals((768f-shape.width)/2f,shape.x,.01f)
+    }
+
+    @Test fun appendedScreenSurvivesResizeAndScroll() {
+        val p=DesignProject.starter()
+        p.appendScreen()
+        assertEquals(2,p.screens)
+        assertEquals(1688,p.pageHeight)
+        val second=DesignElement(kind=ElementKind.TEXT,x=28f,y=960f,
+            width=250f,height=64f,text="Segunda tela")
+        p.elements.add(second)
+        ResponsiveLayout.apply(p,1200,800)
+        assertEquals(1600,p.pageHeight)
+        assertTrue("second section content stays below first screen",
+            second.y>=800f)
+        ResponsiveLayout.apply(p,390,844)
+        assertEquals(1688,p.pageHeight)
+        assertEquals(960f,second.y,.01f)
+    }
+
+    @Test fun rightAnchorPreservesRightMargin() {
+        val e=DesignElement(x=250f,y=40f,width=100f,height=80f,
+            horizontalAnchor=HorizontalAnchor.RIGHT)
+        val p=DesignProject(elements=mutableListOf(e))
+        ResponsiveLayout.apply(p,768,1024)
+        assertEquals(768f-40f-e.width,e.x,.01f)
+    }
+
 }
