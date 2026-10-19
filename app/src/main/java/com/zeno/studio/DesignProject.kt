@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-enum class ElementKind { TEXT, BOX, BUTTON, IMAGE }
+enum class ElementKind { TEXT, BOX, BUTTON, IMAGE, GLASS }
 enum class BackgroundMode { SOLID, GRID, GRADIENT, IMAGE }
 
 data class EmbeddedFont(
@@ -38,6 +38,9 @@ data class DesignElement(
     var radius: Float = 4f,
     var opacity: Float = 1f,
     var imageData: String = "",
+    var imageRatio: Float = 1f,
+    var aspectLocked: Boolean = true,
+    var glassStrength: Float = 0.6f,
     var fontId: String = "",
     var visible: Boolean = true,
     var locked: Boolean = false
@@ -48,6 +51,8 @@ data class DesignElement(
         put("fill", fill); put("textColor", textColor); put("fontSize", fontSize.toDouble())
         put("radius", radius.toDouble()); put("opacity", opacity.toDouble())
         put("imageData", imageData); put("fontId", fontId)
+        put("imageRatio", imageRatio.toDouble()); put("aspectLocked", aspectLocked)
+        put("glassStrength", glassStrength.toDouble())
         put("visible", visible); put("locked", locked)
     }
 
@@ -70,6 +75,11 @@ data class DesignElement(
                     .toFloat().coerceIn(0f, 300f),
                 opacity = obj.optDouble("opacity", 1.0).toFloat().coerceIn(0f, 1f),
                 imageData = obj.optString("imageData"),
+                imageRatio = obj.optDouble("imageRatio",
+                    obj.optDouble("width", 180.0) / obj.optDouble("height", 64.0).coerceAtLeast(1.0))
+                    .toFloat().coerceIn(0.05f, 30f),
+                aspectLocked = obj.optBoolean("aspectLocked", true),
+                glassStrength = obj.optDouble("glassStrength", 0.6).toFloat().coerceIn(0f, 1f),
                 fontId = obj.optString("fontId"),
                 visible = obj.optBoolean("visible", true),
                 locked = obj.optBoolean("locked", false)
