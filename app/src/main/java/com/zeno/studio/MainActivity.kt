@@ -20,6 +20,7 @@ import android.webkit.WebView
 import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONObject
@@ -40,6 +41,8 @@ class MainActivity : Activity() {
     private lateinit var project: DesignProject
     private lateinit var canvasView: EditorCanvas
     private lateinit var inspector: LinearLayout
+    private lateinit var inspectorScroller: ScrollView
+    private lateinit var extras: EditorExtras
     private val history = mutableListOf<String>()
     private var historyIndex = -1
 
@@ -64,7 +67,7 @@ class MainActivity : Activity() {
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density + 0.5f).toInt()
 
-    private fun rounded(fill: Int, radius: Int = 10, stroke: Int? = null): GradientDrawable =
+    private fun rounded(fill: Int, radius: Int = 5, stroke: Int? = null): GradientDrawable =
         GradientDrawable().apply {
             setColor(fill)
             cornerRadius = dp(radius).toFloat()
@@ -82,11 +85,11 @@ class MainActivity : Activity() {
     private fun action(text: String, primary: Boolean = false, onClick: () -> Unit): TextView =
         label(text, 13f, if (primary) Color.WHITE else ink).apply {
             gravity = Gravity.CENTER
-            setPadding(dp(13), 0, dp(13), 0)
-            background = rounded(if (primary) accent else surface, 9,
+            setPadding(dp(10), 0, dp(10), 0)
+            background = rounded(if (primary) accent else surface, 4,
                 if (primary) null else border)
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)
             ).apply { marginEnd = dp(7) }
             setOnClickListener { onClick() }
             isClickable = true
@@ -133,7 +136,13 @@ class MainActivity : Activity() {
         tools.addView(action("+ Texto") { canvasView.add(ElementKind.TEXT) })
         tools.addView(action("+ Forma") { canvasView.add(ElementKind.BOX) })
         tools.addView(action("+ Botão") { canvasView.add(ElementKind.BUTTON) })
-        tools.addView(action("Camadas") { showLayers() })
+        tools.addView(action("+ Imagem") { extras.pickImage() })
+        tools.addView(action("Ordenar") { extras.showLayers() })
+        tools.addView(action("Fundo") { extras.showBackground() })
+        tools.addView(action("Guias") {
+            canvasView.snapToGuides = !canvasView.snapToGuides
+            notify(if (canvasView.snapToGuides) "Guias ativas" else "Guias desligadas")
+        })
         tools.addView(action("Tela") { chooseCanvasSize() })
         tools.addView(action("Ajustar") { canvasView.fitToScreen() })
         toolScroll.addView(tools)
@@ -144,17 +153,24 @@ class MainActivity : Activity() {
             rememberChange()
             showInspector(canvasView.selected())
         })
+        extras = EditorExtras(this, project, canvasView) {
+            propertyChanged()
+            showInspector(canvasView.selected())
+        }
         root.addView(canvasView, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         inspector = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(surface)
-            setPadding(dp(12), dp(12), dp(12), dp(13))
+            setPadding(dp(12), dp(8), dp(12), dp(12))
         }
-        root.addView(inspector, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT))
+        inspectorScroller = ScrollView(this).apply {
+            setBackgroundColor(surface)
+            isVerticalScrollBarEnabled = false
+            addView(inspector)
+        }
+        root.addView(inspectorScroller, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(78)))
         showInspector(null)
     }
 
@@ -173,6 +189,10 @@ class MainActivity : Activity() {
     private fun showInspector(element: DesignElement?) {
         if (!::inspector.isInitialized) return
         inspector.removeAllViews()
+        val layout = inspectorScroller.layoutParams
+        layout.height = dp(if (element == null) 78 else 211)
+        inspectorScroller.layoutParams = layout
+        inspectorScroller.scrollTo(0, 0)
 
         val heading = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -184,12 +204,13 @@ class MainActivity : Activity() {
                     ElementKind.TEXT -> "Texto"
                     ElementKind.BOX -> "Forma"
                     ElementKind.BUTTON -> "Botão"
+                ElementKind.IMAGE -> "Imagem"
                 },
             14f
         ).apply { setTypeface(typeface, Typeface.BOLD) }
         heading.addView(title, LinearLayout.LayoutParams(0, dp(35), 1f))
         if (element != null) {
-            heading.addView(action("Frente") { canvasView.bringSelectedToFront() })
+            heading.addView(action("Ordenar") { extras.showLayers() })
             heading.addView(action("Excluir") { canvasView.deleteSelected() })
         }
         inspector.addView(heading)
@@ -202,7 +223,7 @@ class MainActivity : Activity() {
             return
         }
 
-        if (element.kind != ElementKind.BOX) {
+        if (element.kind == ElementKind.TEXT || element.kind == ElementKind.BUTTON) {
             val textInput = field(element.text, false) { next ->
                 if (element.text != next) {
                     element.text = next
@@ -232,35 +253,58 @@ class MainActivity : Activity() {
             element.height = it.coerceIn(20f, project.pageHeight.toFloat())
             propertyChanged()
         })
-        if (element.kind != ElementKind.BOX) {
+        if (element.kind == ElementKind.TEXT || element.kind == ElementKind.BUTTON) {
             numbers.addView(numberField("Fonte", element.fontSize) {
                 element.fontSize = it.coerceIn(8f, 120f)
                 propertyChanged()
             })
         }
-        inspector.addView(numbersScroll)
-
-        val (colorsScroll, colors) = scrollRow()
-        colors.addView(label(
-            if (element.kind == ElementKind.TEXT) "Cor do texto  "
-            else "Preenchimento  ", 12f, muted
-        ))
-        palette.forEach { hex ->
-            val sample = View(this).apply {
-                background = rounded(Color.parseColor(hex), 7, border)
-                contentDescription = "Cor " + hex
-                setOnClickListener {
-                    if (element.kind == ElementKind.TEXT) element.textColor = hex
-                    else element.fill = hex
-                    propertyChanged()
-                }
-            }
-            colors.addView(sample, LinearLayout.LayoutParams(dp(27), dp(27)).apply {
-                marginEnd = dp(9)
+        if (element.kind != ElementKind.TEXT) {
+            numbers.addView(numberField("Raio", element.radius) {
+                element.radius = it.coerceIn(0f, 300f)
+                propertyChanged()
             })
         }
-        inspector.addView(colorsScroll, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(38)))
+        inspector.addView(numbersScroll)
+
+        val (toolsScroll, toolsRow) = scrollRow()
+        if (element.kind == ElementKind.TEXT || element.kind == ElementKind.BUTTON) {
+            toolsRow.addView(action("Cor do texto") {
+                ColorPicker.show(this, element.textColor, element.opacity) { hex, alpha ->
+                    element.textColor = hex
+                    element.opacity = alpha
+                    propertyChanged()
+                }
+            })
+            toolsRow.addView(action("Fonte") { extras.showFontMenu(element) })
+        }
+        if (element.kind != ElementKind.TEXT && element.kind != ElementKind.IMAGE) {
+            toolsRow.addView(action("Preenchimento") {
+                ColorPicker.show(this, element.fill, element.opacity) { hex, alpha ->
+                    element.fill = hex
+                    element.opacity = alpha
+                    propertyChanged()
+                }
+            })
+        }
+        if (element.kind == ElementKind.IMAGE) {
+            toolsRow.addView(action("Trocar imagem") {
+                extras.pickImage(false, element.id)
+            })
+        }
+        toolsRow.addView(action(if (element.visible) "Ocultar" else "Mostrar") {
+            element.visible = !element.visible
+            propertyChanged()
+            showInspector(element)
+        })
+        toolsRow.addView(action(if (element.locked) "Desbloquear" else "Bloquear") {
+            element.locked = !element.locked
+            propertyChanged()
+            showInspector(element)
+        })
+        inspector.addView(toolsScroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
+        inspector.addView(label("Use as alças de seleção para redimensionar.", 11f, muted))
     }
 
     private fun field(initial: String, numeric: Boolean,
@@ -313,7 +357,7 @@ class MainActivity : Activity() {
         if (history.getOrNull(historyIndex) == next) return
         while (history.size > historyIndex + 1) history.removeAt(history.lastIndex)
         history.add(next)
-        if (history.size > 70) history.removeAt(0)
+        if (history.size > 20) history.removeAt(0)
         historyIndex = history.lastIndex
         autosave()
     }
@@ -334,26 +378,6 @@ class MainActivity : Activity() {
 
     private fun undo() = restoreHistory(historyIndex - 1)
     private fun redo() = restoreHistory(historyIndex + 1)
-
-    private fun showLayers() {
-        if (project.elements.isEmpty()) {
-            notify("Nenhuma camada no projeto")
-            return
-        }
-        val reversed = project.elements.asReversed()
-        val names = reversed.map {
-            val kind = when (it.kind) {
-                ElementKind.TEXT -> "Texto"
-                ElementKind.BOX -> "Forma"
-                ElementKind.BUTTON -> "Botão"
-            }
-            kind + if (it.text.isEmpty()) "" else ": " + it.text.take(24)
-        }.toTypedArray()
-        AlertDialog.Builder(this).setTitle("Camadas (superior primeiro)")
-            .setItems(names) { _, which ->
-                canvasView.select(reversed[which].id)
-            }.setNegativeButton("Fechar", null).show()
-    }
 
     private fun chooseCanvasSize() {
         val names = arrayOf("Celular · 390 × 844", "Tablet · 768 × 1024",
@@ -434,6 +458,7 @@ class MainActivity : Activity() {
     @Deprecated("Android document picker result")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (extras.consumeActivityResult(requestCode, resultCode, data)) return
         if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         try {
@@ -447,6 +472,7 @@ class MainActivity : Activity() {
                         "Formato não reconhecido"
                     }
                     project.restore(obj)
+                    MediaAssets.clear()
                     canvasView.select(null)
                     canvasView.fitToScreen()
                     history.clear()
