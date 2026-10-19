@@ -56,9 +56,9 @@ object ResponsiveLayout {
                     row.maxOf { it.y + it.height } + originalTop)
             } else {
                 for (e in row) {
-                    val expanded = e.width >= oldWidth * 0.84f
-                    val width = if (expanded) min(available, e.width + (newWidth - oldWidth).coerceAtLeast(0))
-                        else min(available, e.width)
+                    // Keep intrinsic component dimensions: wide mobile text
+                    // frames must not become giant desktop rectangles.
+                    val width = min(available, e.width)
                     val h = if (e.kind == ElementKind.IMAGE && e.aspectLocked)
                         width / e.imageRatio.coerceAtLeast(0.05f) else e.height
                     // Avoid pushing left-aligned content to the far edge of a desktop artboard.
