@@ -114,7 +114,7 @@ object HtmlExporter {
                 .append(";opacity:").append(num(e.opacity.coerceIn(0f, 1f)))
                 .append(";background:").append(if (e.kind == ElementKind.GLASS) "transparent" else cssColor(e.fill))
                 .append(";color:").append(cssColor(e.textColor))
-                .append(";font-size:").append(num(e.fontSize)).append("px")
+
             registered[e.fontId]?.let { style.append(";font-family:'").append(it).append("'") }
             when (e.kind) {
                 ElementKind.TEXT -> {
