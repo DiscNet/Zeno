@@ -141,7 +141,7 @@ class EditorExtras(
             entries.map { project.fonts[it]?.name ?: "Fonte" } +
             listOf("＋ Importar TTF/OTF")
         AlertDialog.Builder(activity).setTitle("FONTES")
-            .setItems(labels.toTypedArray()) { _, index ->
+            .setItems(labels) { _, index ->
                 when {
                     index == 0 -> { target.fontId = ""; changed() }
                     index == labels.size - 1 -> pickFont(target.id)
