@@ -100,19 +100,22 @@ object GlassRenderer {
     }
 
     fun draw(canvas:Canvas,backdrop:Bitmap,pageWidth:Int,pageHeight:Int,
-        rect:RectF,radius:Float,intensity:Float,opacity:Float) {
+        rect:RectF,radius:Float,intensity:Float,opacity:Float,
+        frost:Float=0.14f,depth:Float=0.75f,dispersion:Float=0.15f,
+        light:Float=0.36f,originX:Float=0f,originY:Float=0f,
+        renderScale:Float=backdrop.width/pageWidth.toFloat()) {
         if(rect.width()<=1f||rect.height()<=1f)return
         val strength=intensity.coerceIn(0f,1f)
         val alpha=opacity.coerceIn(0f,1f)
         if(alpha<=0f)return
 
-        val scale=backdrop.width/pageWidth.toFloat()
+        val scale=renderScale
         // Crop only the glass footprint plus blur/refraction reach.
         val reach=ceil((14f+strength*14f)*scale).toInt().coerceAtLeast(6)
-        val x0=floor(rect.left*scale).toInt().coerceIn(0,backdrop.width-1)
-        val y0=floor(rect.top*scale).toInt().coerceIn(0,backdrop.height-1)
-        val x1=ceil(rect.right*scale).toInt().coerceIn(x0+1,backdrop.width)
-        val y1=ceil(rect.bottom*scale).toInt().coerceIn(y0+1,backdrop.height)
+        val x0=floor((rect.left-originX)*scale).toInt().coerceIn(0,backdrop.width-1)
+        val y0=floor((rect.top-originY)*scale).toInt().coerceIn(0,backdrop.height-1)
+        val x1=ceil((rect.right-originX)*scale).toInt().coerceIn(x0+1,backdrop.width)
+        val y1=ceil((rect.bottom-originY)*scale).toInt().coerceIn(y0+1,backdrop.height)
         val bx0=(x0-reach).coerceAtLeast(0)
         val by0=(y0-reach).coerceAtLeast(0)
         val bx1=(x1+reach).coerceAtMost(backdrop.width)
@@ -123,18 +126,18 @@ object GlassRenderer {
         if(bw<=0||bh<=0||bw.toLong()*bh>4_000_000L)return
         val source=IntArray(bw*bh)
         backdrop.getPixels(source,0,bw,bx0,by0,bw,bh)
-        val blurRadius=(2f+strength*2.2f).toInt().coerceIn(1,5)
+        val blurRadius=if(frost<0.03f) 0 else (1f+frost*5f).toInt().coerceIn(1,6)
         val frosted=blur(source,bw,bh,blurRadius)
         val outW=x1-x0;val outH=y1-y0
         val out=IntArray(outW*outH)
         val w=rect.width();val h=rect.height()
-        val edgeDepth=(12f+strength*13f).coerceAtMost(min(w,h)*.4f)
-        val bend=3f+strength*10f
+        val edgeDepth=(7f+depth*19f).coerceAtMost(min(w,h)*.42f)
+        val bend=(2f+depth*13f)*strength
 
         for(y in 0 until outH) {
-            val localY=(y+y0+.5f)/scale-rect.top
+            val localY=(y+y0+.5f)/scale+originY-rect.top
             for(x in 0 until outW) {
-                val localX=(x+x0+.5f)/scale-rect.left
+                val localX=(x+x0+.5f)/scale+originX-rect.left
                 val dist=distance(localX,localY,w,h,radius)
                 if(dist<=-.8f)continue
                 val coverage=(dist+.8f).coerceIn(0f,1f)
@@ -151,16 +154,21 @@ object GlassRenderer {
                 val crisp=sample(source,bw,bh,u,v)
                 val soft=sample(frosted,bw,bh,u,v)
                 // Retain texture, while softening it like frosted glass.
-                val frost=(0.33f+0.35f*strength).coerceIn(0f,1f)
+                val frostMix=(frost*0.82f).coerceIn(0f,0.82f)
                 fun mix(a:Int,b:Int,t:Float)=(a*(1-t)+b*t).toInt()
-                val hilite=(edge.pow(3)*0.14f +
-                    0.055f*(1f-localY/h)).coerceIn(0f,.22f)
+                val hilite=((edge.pow(4)*.17f +
+                    .016f*(1f-localY/h))*light).coerceIn(0f,.15f)
                 val light=(hilite*255).toInt()
-                val rr=(mix(Color.red(crisp),Color.red(soft),frost)+light)
+                val fringe=dispersion*edge*2.2f*scale
+                val fringeRed=if(fringe>.15f) sample(source,bw,bh,
+                    (u-fringe).coerceIn(0f,(bw-1).toFloat()),v) else crisp
+                val fringeBlue=if(fringe>.15f) sample(source,bw,bh,
+                    (u+fringe).coerceIn(0f,(bw-1).toFloat()),v) else crisp
+                val rr=(mix(Color.red(fringeRed),Color.red(soft),frostMix)+light)
                     .coerceIn(0,255)
-                val gg=(mix(Color.green(crisp),Color.green(soft),frost)+light+2)
+                val gg=(mix(Color.green(crisp),Color.green(soft),frostMix)+light)
                     .coerceIn(0,255)
-                val bb=(mix(Color.blue(crisp),Color.blue(soft),frost)+light+6)
+                val bb=(mix(Color.blue(fringeBlue),Color.blue(soft),frostMix)+light)
                     .coerceIn(0,255)
                 out[y*outW+x]=Color.argb((255*coverage).toInt().coerceIn(0,255),
                     rr,gg,bb)
@@ -176,11 +184,11 @@ object GlassRenderer {
         val rim=Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style=Paint.Style.STROKE
             strokeWidth=1.6f
-            color=Color.argb(215,248,251,255)
+            color=Color.argb((110f+120f*light).toInt(),240,248,255)
         }
         canvas.drawRoundRect(rect,radius,radius,rim)
         rim.strokeWidth=1f
-        rim.color=Color.argb(80,32,56,82)
+        rim.color=Color.argb((70f+60f*depth).toInt(),30,48,68)
         val inner=RectF(rect.left+2.5f,rect.top+2.5f,
             rect.right-2.5f,rect.bottom-2.5f)
         canvas.drawRoundRect(inner,max(0f,radius-2.5f),
@@ -189,7 +197,7 @@ object GlassRenderer {
             rect.right-radius-6f,rect.top+4.2f)
         if(line.right>line.left) {
             rim.shader=LinearGradient(line.left,line.top,line.right,line.top,
-                intArrayOf(Color.TRANSPARENT,Color.argb(185,255,255,255),
+                intArrayOf(Color.TRANSPARENT,Color.argb((170f*light).toInt(),255,255,255),
                     Color.TRANSPARENT),null,Shader.TileMode.CLAMP)
             rim.style=Paint.Style.FILL
             canvas.drawRoundRect(line,1f,1f,rim)
