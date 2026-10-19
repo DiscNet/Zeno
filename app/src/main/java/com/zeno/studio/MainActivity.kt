@@ -137,6 +137,7 @@ class MainActivity : Activity() {
         tools.addView(action("+ Forma") { canvasView.add(ElementKind.BOX) })
         tools.addView(action("+ Botão") { canvasView.add(ElementKind.BUTTON) })
         tools.addView(action("+ Imagem") { extras.pickImage() })
+        tools.addView(action("+ Vidro") { canvasView.add(ElementKind.GLASS) })
         tools.addView(action("Ordenar") { extras.showLayers() })
         tools.addView(action("Fundo") { extras.showBackground() })
         tools.addView(action("Guias") {
@@ -205,6 +206,7 @@ class MainActivity : Activity() {
                     ElementKind.BOX -> "Forma"
                     ElementKind.BUTTON -> "Botão"
                 ElementKind.IMAGE -> "Imagem"
+                    ElementKind.GLASS -> "Vidro"
                 },
             14f
         ).apply { setTypeface(typeface, Typeface.BOLD) }
@@ -247,10 +249,14 @@ class MainActivity : Activity() {
         })
         numbers.addView(numberField("W", element.width) {
             element.width = it.coerceIn(20f, project.pageWidth.toFloat())
+            if (element.kind == ElementKind.IMAGE && element.aspectLocked)
+                element.height = element.width / element.imageRatio.coerceAtLeast(0.05f)
             propertyChanged()
         })
         numbers.addView(numberField("H", element.height) {
             element.height = it.coerceIn(20f, project.pageHeight.toFloat())
+            if (element.kind == ElementKind.IMAGE && element.aspectLocked)
+                element.width = element.height * element.imageRatio.coerceAtLeast(0.05f)
             propertyChanged()
         })
         if (element.kind == ElementKind.TEXT || element.kind == ElementKind.BUTTON) {
@@ -262,6 +268,12 @@ class MainActivity : Activity() {
         if (element.kind != ElementKind.TEXT) {
             numbers.addView(numberField("Raio", element.radius) {
                 element.radius = it.coerceIn(0f, 300f)
+                propertyChanged()
+            })
+        }
+        if (element.kind == ElementKind.GLASS) {
+            numbers.addView(numberField("Vidro", element.glassStrength * 100f) {
+                element.glassStrength = (it / 100f).coerceIn(0f, 1f)
                 propertyChanged()
             })
         }
@@ -278,7 +290,7 @@ class MainActivity : Activity() {
             })
             toolsRow.addView(action("Fonte") { extras.showFontMenu(element) })
         }
-        if (element.kind != ElementKind.TEXT && element.kind != ElementKind.IMAGE) {
+        if (element.kind == ElementKind.BOX || element.kind == ElementKind.BUTTON) {
             toolsRow.addView(action("Preenchimento") {
                 ColorPicker.show(this, element.fill, element.opacity) { hex, alpha ->
                     element.fill = hex
@@ -290,6 +302,23 @@ class MainActivity : Activity() {
         if (element.kind == ElementKind.IMAGE) {
             toolsRow.addView(action("Trocar imagem") {
                 extras.pickImage(false, element.id)
+            })
+            toolsRow.addView(action(
+                if (element.aspectLocked) "Proporção 🔒" else "Proporção 🔓") {
+                element.aspectLocked = !element.aspectLocked
+                if (element.aspectLocked)
+                    element.imageRatio = (element.width /
+                        element.height.coerceAtLeast(1f)).coerceIn(0.05f,30f)
+                propertyChanged()
+                showInspector(element)
+            })
+        }
+        if (element.kind == ElementKind.GLASS) {
+            toolsRow.addView(action("Transparência") {
+                ColorPicker.show(this, "#E6F0FF", element.opacity) { _, alpha ->
+                    element.opacity = alpha
+                    propertyChanged()
+                }
             })
         }
         toolsRow.addView(action(if (element.visible) "Ocultar" else "Mostrar") {
@@ -385,8 +414,7 @@ class MainActivity : Activity() {
         val sizes = arrayOf(390 to 844, 768 to 1024, 1200 to 800)
         AlertDialog.Builder(this).setTitle("Formato do canvas")
             .setItems(names) { _, index ->
-                project.pageWidth = sizes[index].first
-                project.pageHeight = sizes[index].second
+                ResponsiveLayout.apply(project, sizes[index].first, sizes[index].second)
                 canvasView.fitToScreen()
                 rememberChange()
                 showInspector(canvasView.selected())
